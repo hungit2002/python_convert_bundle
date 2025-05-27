@@ -23,11 +23,8 @@ logger = logging.getLogger(__name__)
 redis_client = redis.StrictRedis(host=os.getenv('REDIS_HOST'), port=os.getenv('REDIS_PORT'), db=os.getenv('REDIS_DB'))
 
 def check_process(file_path):
-
-    file_name = file_path.split('\\')[-1]
-
+    file_name = os.path.basename(file_path)
     status = redis_client.get(file_name)
-
     if status:
         return status
     else:
@@ -35,12 +32,11 @@ def check_process(file_path):
     
 
 def cache_process_status(file_path, status):
-    file_name = file_path.split('\\')[-1]
+    file_name = os.path.basename(file_path)
     redis_client.set(file_name, status)
 
 def delete_cache(file_path):
-    file_name = file_path.split('\\')[-1]
-
+    file_name = os.path.basename(file_path)
     redis_client.delete(file_name)
 
 def remove_folder():
@@ -553,6 +549,7 @@ def single_process():
                     move_file_to_dead_letter(file_path, folderItem['bundle_type'])
                     process = "True"
                     return process
+        return None
     except FileNotFoundError as fe:
         process = None
         return process

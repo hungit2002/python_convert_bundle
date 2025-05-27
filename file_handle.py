@@ -32,14 +32,22 @@ def noti_to_tele(message):
 def unzip_file_and_delete(file):
     step = "Unzip File"
     start = time.time()
-    filename = file.split('\\')[-1][:-4]
-    zip_file =  os.getenv('INPUT') + "\\" + file.split('\\')[-1]
-    dest_folder = os.getenv('INPUT') + "\\" + filename
+
+    # filename: tên file không đuôi ".zip"
+    filename = os.path.splitext(os.path.basename(file))[0]
+
+    # Đường dẫn file zip
+    zip_file = os.path.join(os.getenv('INPUT'), os.path.basename(file))
+
+    # Đường dẫn thư mục đích
+    dest_folder = os.path.join(os.getenv('INPUT'), filename)
+
+    logger.info(step)
 
     logger.info(step)
     with ZipFile(zip_file, 'r') as zObject:
         zObject.extractall(path=dest_folder)
-    os.remove(zip_file)
+    # os.remove(zip_file)
     end = time.time()
     evaluate_process_time(start, end, step)
 
@@ -47,15 +55,15 @@ def build_asset_bundle():
     step = "Build Bundle"
     start = time.time()
     logger.info(step)
-    
+
     #Build Bundle Only Win32
-    #args = "C:\\2022.1.20f1\\Editor\\Unity.exe -executeMethod CreateAssetBundles.BuildDataToBundlesWin -projectPath C:\MonkeyXAssetBunldeBuilder\AssetBunldeBuilder -batchmode -quit"
+    #args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundlesWin -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
 
     #Build Bundle Normal
-    args = "C:\\2022.1.20f1\\Editor\\Unity.exe -executeMethod CreateAssetBundles.BuildDataToBundles -projectPath C:\MonkeyXAssetBunldeBuilder\AssetBunldeBuilder -batchmode -quit"
-    
+    args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundles -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
+
     #Build Bundle Coloring
-    # args = "C:\\2022.1.20f1\\Editor\\Unity.exe -executeMethod CreateAssetBundles.BuildColorRingToBundle -projectPath C:\MonkeyXAssetBunldeBuilder\AssetBunldeBuilder -batchmode -quit"
+    # args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildColorRingToBundle -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
     subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
     end = time.time()
@@ -65,21 +73,21 @@ def build_asset_conversation_video():
     step = "Build Bundle Conversation Video"
     start = time.time()
     logger.info(step)
-    
+
     #Build Bundle Normal
-    args = "C:\\2022.1.20f1\\Editor\\Unity.exe -executeMethod CreateAssetBundles.BuildDataToBundlesVideoCall -projectPath C:\MonkeyXAssetBunldeBuilder\AssetBunldeBuilder -batchmode -quit"
-    
+    args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundlesVideoCall -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
+
     subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
     end = time.time()
-    evaluate_process_time(start, end, step)    
+    evaluate_process_time(start, end, step)
 
 def build_asset_bundle_low_rez():
     step = "Build Bundle Low Res"
     start = time.time()
     logger.info(step)
 
-    args = "C:\\2022.1.20f1\\Editor\\Unity.exe -executeMethod CreateAssetBundles.BuildDataToBundlesLowRez -projectPath C:\MonkeyXAssetBunldeBuilder\AssetBunldeBuilder -batchmode -quit"
+    args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundlesLowRez -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
     subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
     end = time.time()
@@ -90,7 +98,7 @@ def build_asset_addressables():
     start = time.time()
     logger.info(step)
 
-    args = "C:\\2022.1.20f1\\Editor\\Unity.exe -executeMethod CreateAddressables.ExportBundles -projectPath C:\MonkeyXAssetBunldeBuilder\AssetBunldeBuilder -batchmode -quit"
+    args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAddressables.ExportBundles -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
     subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
     end = time.time()
@@ -105,7 +113,7 @@ def upload_to_s3(file, bundle_type):
     start = time.time()
 
     logger.info(step)
-    bundle_file = file.split('\\')[-1][:-4]
+    bundle_file = os.path.basename(file)[:-4]
     ios_bundle = os.getenv('IOS_BUNDLE') + bundle_file + ".bundle"
     and_bundle = os.getenv('ANDROID_BUNDLE') + bundle_file + ".bundle"
     win32_bundle =  os.getenv('WIN32_BUNDLE') + bundle_file + ".bundle"
@@ -132,7 +140,7 @@ def upload_to_s3(file, bundle_type):
         return ios_s3_bundle, and_s3_bundle, win32_s3_bundle
     except Exception as e:
         raise CustomException("\nCannot upload bundle to S3" + str(e))
-    
+
     end = time.time()
     evaluate_process_time(start, end, step)
 
@@ -141,7 +149,7 @@ def upload_to_s3_2(file, upload_ios, upload_android, upload_win32):
     start = time.time()
 
     logger.info(step)
-    bundle_file = file.split('\\')[-1][:-4]
+    bundle_file = os.path.basename(file)[:-4]
     ios_bundle = os.getenv('IOS_BUNDLE') + bundle_file + ".bundle"
     and_bundle = os.getenv('ANDROID_BUNDLE') + bundle_file + ".bundle"
     win32_bundle = os.getenv('WIN32_BUNDLE') + bundle_file + ".bundle"
@@ -176,7 +184,7 @@ def update_api(file, bundle_type):
     form = {
        "path_bundle": file
     }
-    
+
     logger.info(step)
     match bundle_type:
         case "story":
@@ -187,7 +195,7 @@ def update_api(file, bundle_type):
             request = requests.put(word_api, data=form)
             if(request.status_code != 200):
                 raise CustomException("Update APi " + request.text + "\n"+word_api)
-    
+
     end = time.time()
     evaluate_process_time(start, end, step)
 
@@ -235,7 +243,7 @@ def count_file_in_queue():
 
     i = 0
     for folder in folders:
-        
+
         if os.path.isdir(folder):
         # Get a list of all files in the directory
             file_list = os.listdir(folder)
@@ -252,8 +260,8 @@ def main_process(file_path, folderItem):
     try:
         done_message = "Done"
         fail_message = "Failed"
-        start_time = time.time()     
-        file_name = file_path.split('\\')[-1][:-4]
+        start_time = time.time()
+        file_name = os.path.basename(file_path)[:-4]
         bundle_type = folderItem['bundle_type']
         type = folderItem['type']
 
@@ -266,10 +274,10 @@ def main_process(file_path, folderItem):
         elif type == 'low':
             build_asset_bundle_low_rez()
         elif type == 'addressable':
-            build_asset_addressables()   
+            build_asset_addressables()
         elif type == 'conversation':
-            build_asset_conversation_video()    
-       
+            build_asset_conversation_video()
+
         ios_bundle = os.getenv('IOS_BUNDLE') + file_name + ".bundle"
         and_bundle = os.getenv('ANDROID_BUNDLE') + file_name + ".bundle"
         win32_bundle = os.getenv('WIN32_BUNDLE') + file_name + ".bundle"
@@ -287,7 +295,7 @@ def main_process(file_path, folderItem):
         total_time_taken = end_time - start_time
 
         noti_to_tele("Successfully: "+bundle_type+" - "+type+" - "+file_name+f"\nBuild time: {total_time_taken:.1f} seconds")
-        
+
         return done_message, total_time_taken, upload[0], upload[1]
     except CustomException as ce:
         noti_to_tele("Failed: " + file_name +" Error: "+ ce.message)
