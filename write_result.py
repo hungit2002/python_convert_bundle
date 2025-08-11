@@ -30,7 +30,7 @@ class CustomException(Exception):
 
 def insert_result_to_es(file_path, bundle_type, status, ios_bundle, and_bundle, build_time):
     
-    file_name = file_path.split('\\')[-1][:-4]
+    file_name = os.path.splitext(os.path.basename(file_path))[0]
     host_name = socket.gethostname()
     current_time = datetime.now()
     time_stamp = current_time.isoformat()

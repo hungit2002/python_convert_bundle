@@ -483,26 +483,38 @@ def delete_zip_file(file_path):
     evaluate_process_time(start, end, step)
 
 def move_file_to_dead_letter(file_path, bundle_type):
-
+    """Di chuyển file thất bại vào thư mục dead letter
+    
+    Args:
+        file_path: Đường dẫn file cần di chuyển
+        bundle_type: Loại bundle
+    """
     step = "Move zip to Dead Letter"
     start = time.time()
 
     logger.info(step)
-    logger.info(file_path)
-    file_name = file_path.split('\\')[-1]
-    logger.info(file_name)
-    command = "sudo mv " + file_path + " " + os.getenv('DL_PATH') + bundle_type + "\\" + file_name
-
+    logger.info(f"Moving file: {file_path}")
+    
     try:
-        subprocess.call(command , stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        #shutil.move(file_path)
+        # Tạo thư mục dead letter nếu chưa tồn tại
+        dead_letter_dir = os.path.join(os.getenv('DL_PATH'), bundle_type)
+        os.makedirs(dead_letter_dir, exist_ok=True)
+        
+        # Lấy tên file
+        file_name = os.path.basename(file_path)
+        dest_path = os.path.join(dead_letter_dir, file_name)
+        
+        # Di chuyển file
+        shutil.move(file_path, dest_path)
+        logger.info(f"Successfully moved file to: {dest_path}")
+        
     except FileNotFoundError:
-        print("The source file does not exist.")
+        logger.error(f"Source file not found: {file_path}")
     except Exception as e:
-        print(f"An error occurred while moving the file: {str(e)}")
-
-    end = time.time()
-    evaluate_process_time(start, end, step)
+        logger.error(f"Error moving file: {str(e)}")
+    finally:
+        end = time.time()
+        evaluate_process_time(start, end, step)
 
 max_retry = 3
 

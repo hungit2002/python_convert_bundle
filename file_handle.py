@@ -7,6 +7,9 @@ import shutil
 import time
 import logging
 from dotenv import load_dotenv
+import signal
+from contextlib import contextmanager
+import threading
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,6 +18,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@contextmanager
+def timeout(seconds):
+    """Context manager để giới hạn thời gian chạy của một process
+    
+    Args:
+        seconds: Số giây tối đa cho phép process chạy
+    """
+    def signal_handler(signum, frame):
+        raise TimeoutError(f"Process timed out after {seconds} seconds")
+        
+    # Đăng ký signal handler
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    
+    try:
+        yield
+    finally:
+        # Tắt alarm
+        signal.alarm(0)
 
 def evaluate_process_time(start_time, end_time, step):
     time_taken = end_time - start_time
@@ -23,11 +45,29 @@ def evaluate_process_time(start_time, end_time, step):
 load_dotenv()
 
 def noti_to_tele(message):
-    token = os.getenv('TOKEN')
-    chat_id = os.getenv('CHAT_ID')
-    url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={message}"
-
-    requests.get(url)
+    """Gửi thông báo qua Google Chat
+    
+    Args:
+        message: Nội dung thông báo cần gửi
+    """
+    url = "https://chat.googleapis.com/v1/spaces/AAQA_FBcFx0/messages"
+    params = {
+        "key": "AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI",
+        "token": "7kUvaRguXgkgO_V7q7hvH8uE5oJuqEhsKhLU0Dpk2gU"
+    }
+    headers = {
+        "Content-Type": "application/json"
+    }
+    data = {
+        "text": message
+    }
+    
+    try:
+        response = requests.post(url, params=params, headers=headers, json=data)
+        if response.status_code != 200:
+            logger.error(f"Failed to send notification to Google Chat: {response.text}")
+    except Exception as e:
+        logger.error(f"Error sending notification to Google Chat: {str(e)}")
 
 def unzip_file_and_delete(file):
     step = "Unzip File"
@@ -43,11 +83,9 @@ def unzip_file_and_delete(file):
     dest_folder = os.path.join(os.getenv('INPUT'), filename)
 
     logger.info(step)
-
-    logger.info(step)
     with ZipFile(zip_file, 'r') as zObject:
         zObject.extractall(path=dest_folder)
-    # os.remove(zip_file)
+    os.remove(zip_file)
     end = time.time()
     evaluate_process_time(start, end, step)
 
@@ -56,31 +94,86 @@ def build_asset_bundle():
     start = time.time()
     logger.info(step)
 
-    #Build Bundle Only Win32
-    #args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundlesWin -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
-
-    #Build Bundle Normal
     args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundles -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
 
-    #Build Bundle Coloring
-    # args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildColorRingToBundle -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
-    subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-
-    end = time.time()
-    evaluate_process_time(start, end, step)
+    try:
+        # Sử dụng Popen thay vì call để không block process chính
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            universal_newlines=True,
+            bufsize=1  # Line buffered
+        )
+        
+        # Đọc output theo dòng để tránh buffer đầy
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                logger.debug(f"Unity output: {output.strip()}")
+                
+        # Kiểm tra return code
+        returncode = process.poll()
+        if returncode != 0:
+            error = process.stderr.read()
+            logger.error(f"Unity Editor failed with return code {returncode}")
+            logger.error(f"Error output: {error}")
+            return False
+            
+        logger.info("Build Bundle Done")
+        end = time.time()
+        evaluate_process_time(start, end, step)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error running Unity Editor: {str(e)}")
+        if process:
+            process.kill()
+        return False
 
 def build_asset_conversation_video():
     step = "Build Bundle Conversation Video"
     start = time.time()
     logger.info(step)
 
-    #Build Bundle Normal
     args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundlesVideoCall -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
 
-    subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-
-    end = time.time()
-    evaluate_process_time(start, end, step)
+    try:
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            universal_newlines=True,
+            bufsize=1
+        )
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                logger.debug(f"Unity output: {output.strip()}")
+                
+        returncode = process.poll()
+        if returncode != 0:
+            error = process.stderr.read()
+            logger.error(f"Unity Editor failed with return code {returncode}")
+            logger.error(f"Error output: {error}")
+            return False
+            
+        end = time.time()
+        evaluate_process_time(start, end, step)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error running Unity Editor: {str(e)}")
+        if process:
+            process.kill()
+        return False
 
 def build_asset_bundle_low_rez():
     step = "Build Bundle Low Res"
@@ -88,10 +181,40 @@ def build_asset_bundle_low_rez():
     logger.info(step)
 
     args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAssetBundles.BuildDataToBundlesLowRez -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
-    subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
-    end = time.time()
-    evaluate_process_time(start, end, step)
+    try:
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            universal_newlines=True,
+            bufsize=1
+        )
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                logger.debug(f"Unity output: {output.strip()}")
+                
+        returncode = process.poll()
+        if returncode != 0:
+            error = process.stderr.read()
+            logger.error(f"Unity Editor failed with return code {returncode}")
+            logger.error(f"Error output: {error}")
+            return False
+            
+        end = time.time()
+        evaluate_process_time(start, end, step)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error running Unity Editor: {str(e)}")
+        if process:
+            process.kill()
+        return False
 
 def build_asset_addressables():
     step = "Build Addressables"
@@ -99,10 +222,40 @@ def build_asset_addressables():
     logger.info(step)
 
     args = "/Applications/Unity/Hub/Editor/2022.1.20f1/Unity.app/Contents/MacOS/Unity -executeMethod CreateAddressables.ExportBundles -projectPath /Users/monkey/Documents/monkey/MonkeyXAssetBunldeBuilder/AssetBunldeBuilder -batchmode -quit"
-    subprocess.call(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
-    end = time.time()
-    evaluate_process_time(start, end, step)
+    try:
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            universal_newlines=True,
+            bufsize=1
+        )
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                logger.debug(f"Unity output: {output.strip()}")
+                
+        returncode = process.poll()
+        if returncode != 0:
+            error = process.stderr.read()
+            logger.error(f"Unity Editor failed with return code {returncode}")
+            logger.error(f"Error output: {error}")
+            return False
+            
+        end = time.time()
+        evaluate_process_time(start, end, step)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error running Unity Editor: {str(e)}")
+        if process:
+            process.kill()
+        return False
 
 class CustomException(Exception):
         def __init__(self, message):
@@ -269,14 +422,19 @@ def main_process(file_path, folderItem):
         unzip_file_and_delete(file_path)
 
         #build
+        success = False
         if type == 'bundle':
-            build_asset_bundle()
+            success = build_asset_bundle_with_timeout()
         elif type == 'low':
-            build_asset_bundle_low_rez()
+            success = build_asset_bundle_low_rez_with_timeout()
         elif type == 'addressable':
-            build_asset_addressables()
+            success = build_asset_addressables_with_timeout()
         elif type == 'conversation':
-            build_asset_conversation_video()
+            success = build_asset_conversation_video_with_timeout()
+
+        if not success:
+            noti_to_tele("Failed : " + file_name +" Error: build failed")
+            return fail_message
 
         ios_bundle = os.getenv('IOS_BUNDLE') + file_name + ".bundle"
         and_bundle = os.getenv('ANDROID_BUNDLE') + file_name + ".bundle"
@@ -303,3 +461,55 @@ def main_process(file_path, folderItem):
     except Exception as e:
         noti_to_tele("Failed: " + file_name +" Error: "+ str(e))
         return fail_message
+
+def build_asset_bundle_with_timeout(timeout_seconds=600):  # Default 10 minutes timeout
+    """Build Unity bundle với timeout
+    
+    Args:
+        timeout_seconds: Số giây tối đa cho phép build
+        
+    Returns:
+        bool: True nếu build thành công, False nếu thất bại
+    """
+    try:
+        with timeout(timeout_seconds):
+            return build_asset_bundle()
+    except TimeoutError as e:
+        logger.error(f"Build timed out after {timeout_seconds} seconds: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during build: {str(e)}")
+        return False
+
+def build_asset_conversation_video_with_timeout(timeout_seconds=3600):
+    try:
+        with timeout(timeout_seconds):
+            return build_asset_conversation_video()
+    except TimeoutError as e:
+        logger.error(f"Build timed out after {timeout_seconds} seconds: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during build: {str(e)}")
+        return False
+
+def build_asset_bundle_low_rez_with_timeout(timeout_seconds=3600):
+    try:
+        with timeout(timeout_seconds):
+            return build_asset_bundle_low_rez()
+    except TimeoutError as e:
+        logger.error(f"Build timed out after {timeout_seconds} seconds: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during build: {str(e)}")
+        return False
+
+def build_asset_addressables_with_timeout(timeout_seconds=3600):
+    try:
+        with timeout(timeout_seconds):
+            return build_asset_addressables()
+    except TimeoutError as e:
+        logger.error(f"Build timed out after {timeout_seconds} seconds: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during build: {str(e)}")
+        return False
