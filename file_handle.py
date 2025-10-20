@@ -44,30 +44,37 @@ def evaluate_process_time(start_time, end_time, step):
 
 load_dotenv()
 
+# def noti_to_tele(message):
+#     """Gửi thông báo qua Google Chat
+#
+#     Args:
+#         message: Nội dung thông báo cần gửi
+#     """
+#     url = "https://chat.googleapis.com/v1/spaces/AAQA_FBcFx0/messages"
+#     params = {
+#         "key": "AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI",
+#         "token": "7kUvaRguXgkgO_V7q7hvH8uE5oJuqEhsKhLU0Dpk2gU"
+#     }
+#     headers = {
+#         "Content-Type": "application/json"
+#     }
+#     data = {
+#         "text": message
+#     }
+#
+#     try:
+#         response = requests.post(url, params=params, headers=headers, json=data)
+#         if response.status_code != 200:
+#             logger.error(f"Failed to send notification to Google Chat: {response.text}")
+#     except Exception as e:
+#         logger.error(f"Error sending notification to Google Chat: {str(e)}")
+
 def noti_to_tele(message):
-    """Gửi thông báo qua Google Chat
-    
-    Args:
-        message: Nội dung thông báo cần gửi
-    """
-    url = "https://chat.googleapis.com/v1/spaces/AAQA_FBcFx0/messages"
-    params = {
-        "key": "AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI",
-        "token": "7kUvaRguXgkgO_V7q7hvH8uE5oJuqEhsKhLU0Dpk2gU"
-    }
-    headers = {
-        "Content-Type": "application/json"
-    }
-    data = {
-        "text": message
-    }
-    
-    try:
-        response = requests.post(url, params=params, headers=headers, json=data)
-        if response.status_code != 200:
-            logger.error(f"Failed to send notification to Google Chat: {response.text}")
-    except Exception as e:
-        logger.error(f"Error sending notification to Google Chat: {str(e)}")
+    token = os.getenv('TOKEN')
+    chat_id = os.getenv('CHAT_ID')
+    url = f"https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={message}"
+
+    requests.get(url)
 
 def unzip_file_and_delete(file):
     step = "Unzip File"

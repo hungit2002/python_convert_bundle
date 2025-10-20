@@ -31,7 +31,7 @@ redis_client = redis.Redis(
     db=int(os.getenv('REDIS_DB'))
 )
 
-def download_file_from_s3(file_name):
+def download_file_from_s3(file_name, bundle_type='word'):
     """Tải file từ S3 về local
     
     Args:
@@ -41,8 +41,15 @@ def download_file_from_s3(file_name):
         bool: True nếu tải thành công, False nếu thất bại
     """
     try:
+        domain = os.getenv('WORD_CDN_PATH_SOURCE')
+        if bundle_type == 'story':
+            domain = os.getenv('STORY_CDN_PATH_SOURCE')
+        if bundle_type == 'activity':
+            domain = os.getenv('ACTIVITY_CDN_PATH_SOURCE')
+        if bundle_type == 'courseinstall':
+            domain = os.getenv('COURSEINSTALL_CDN_PATH_SOURCE')
         # Tạo URL đầy đủ
-        s3_url = f"https://vnmedia2.monkeyuni.net/App/zip/hdr/word/{file_name}"
+        s3_url = f"{domain}{file_name}"
         
         # Tạo đường dẫn lưu file
         save_path = os.path.join(os.getenv('WORD_ZIP_PATH_SOURCE'), file_name)
@@ -173,10 +180,9 @@ def save_build_result_to_excel(file_name, bundle_type, status, ios_bundle, and_b
 def process_message(ch, method, properties, body):
     """Xử lý message từ RabbitMQ"""
     count_retry = 1
-    max_retry = 3  # Số lần retry tối đa
+    max_retry = 1
 
     try:
-        # Parse message
         message = json.loads(body)
         file_name = message.get('file_name')
         bundle_type = message.get('bundle_type', 'word')
@@ -187,85 +193,179 @@ def process_message(ch, method, properties, body):
             return
 
         while count_retry <= max_retry:
-            logger.info(f"Processing attempt {count_retry} of {max_retry} for file: {file_name}")
+            try:
+                logger.info(f"Processing attempt {count_retry} of {max_retry} for file: {file_name}")
 
-            # Tải file từ S3
-            if not download_file_from_s3(file_name):
-                logger.error(f"Failed to download file from S3: {file_name}")
-                if count_retry == max_retry:
-                    ch.basic_ack(delivery_tag=method.delivery_tag)
-                    return
-                count_retry += 1
-                continue
+                # Download file
+                if not download_file_from_s3(file_name, bundle_type):
+                    raise RuntimeError(f"Failed to download file from S3: {file_name}")
 
-            # Tạo đường dẫn file
-            file_path = os.path.join(os.getenv('WORD_ZIP_PATH_SOURCE'), file_name)
+                file_path = os.path.join(os.getenv('WORD_ZIP_PATH_SOURCE'), file_name)
+                if not os.path.exists(file_path):
+                    raise FileNotFoundError(f"File not found: {file_path}")
 
-            # Kiểm tra file tồn tại
-            if not os.path.exists(file_path):
-                logger.error(f"File not found: {file_path}")
-                if count_retry == max_retry:
-                    ch.basic_ack(delivery_tag=method.delivery_tag)
-                    return
-                count_retry += 1
-                continue
+                cache_process_status(file_path, "Processing")
+                remove_folder()
+                copy_zip_file(file_path)
 
-            # Cache trạng thái xử lý
-            cache_process_status(file_path, "Processing")
+                # Prepare folder item for processing
+                upload_ios = os.getenv('WORD_IOS_S3_PATH')
+                upload_android = os.getenv('WORD_AND_S3_PATH')
+                upload_win32 = os.getenv('WORD_WIN32_S3_PATH')
+                if bundle_type == 'story':
+                    upload_ios = os.getenv('STORY_IOS_S3_PATH')
+                    upload_android = os.getenv('STORY_AND_S3_PATH')
+                    upload_win32 = os.getenv('STORY_WIN32_S3_PATH')
+                if bundle_type == 'activity':
+                    upload_ios = os.getenv('ACTIVITY_IOS_S3_PATH')
+                    upload_android = os.getenv('ACTIVITY_AND_S3_PATH')
+                    upload_win32 = os.getenv('ACTIVITY_WIN32_S3_PATH')
+                if bundle_type == 'courseinstall':
+                    upload_ios = os.getenv('COURSEINSTALL_IOS_S3_PATH')
+                    upload_android = os.getenv('COURSEINSTALL_AND_S3_PATH')
+                    upload_win32 = os.getenv('COURSEINSTALL_WIN32_S3_PATH')
+                folder_item = {
+                    'bundle_type': bundle_type,
+                    'type': 'bundle',
+                    'upload_ios': upload_ios,
+                    'upload_android': upload_android,
+                    'upload_win32': upload_win32,
+                }
 
-            # Xóa thư mục cũ
-            remove_folder()
+                result = main_process(file_path, folder_item)
+                message = result[0]
+                build_time = result[1]
+                ios_bundle = result[2]
+                and_bundle = result[3]
 
-            # Copy file vào INPUT
-            copy_zip_file(file_path)
-
-            # Xử lý file
-            folder_item = {
-                'bundle_type': bundle_type,
-                'type': 'bundle',
-                'upload_ios': os.getenv('WORD_IOS_S3_PATH'),
-                'upload_android': os.getenv('WORD_AND_S3_PATH'),
-                'upload_win32': os.getenv('WORD_WIN32_S3_PATH'),
-            }
-
-            result = main_process(file_path, folder_item)
-
-            message = result[0]
-            build_time = result[1]
-            ios_bundle = result[2]
-            and_bundle = result[3]
-
-            if message == "Done":
-                delete_zip_file(file_path)
-                delete_cache(file_path)
-                # insert_result_to_es(file_path, bundle_type, message, ios_bundle, and_bundle, build_time)
-                save_build_result_to_excel(file_name, bundle_type, "Done", ios_bundle, and_bundle, build_time, count_retry)
-                logger.info(f"Successfully processed {file_name} after {count_retry} attempts")
-                break
-            else:
-                build_time = "0"
-                ios_bundle = "Not Exist"
-                and_bundle = "Not Exists"
-                fail_message = "Failed"
-                delete_cache(file_path)
-                # insert_result_to_es(file_path, bundle_type, fail_message, ios_bundle, and_bundle, build_time)
-                save_build_result_to_excel(file_name, bundle_type, "Failed", ios_bundle, and_bundle, build_time, count_retry)
-
-                if count_retry == max_retry:
-                    logger.error(f"Failed to process {file_name} after {max_retry} attempts")
-                    move_file_to_dead_letter(file_path, bundle_type)
+                if message == "Done":
+                    delete_zip_file(file_path)
+                    delete_cache(file_path)
+                    save_build_result_to_excel(file_name, bundle_type, "Done", ios_bundle, and_bundle, build_time, count_retry)
+                    logger.info(f"Successfully processed {file_name} after {count_retry} attempts")
+                    break
                 else:
-                    logger.warning(f"Retry {count_retry} failed for {file_name}, attempting again...")
-                    count_retry += 1
-                    continue
+                    delete_cache(file_path)
+                    save_build_result_to_excel(file_name, bundle_type, "Failed", "Not Exist", "Not Exists", "0", count_retry)
+                    if count_retry == max_retry:
+                        logger.error(f"Failed to process {file_name} after {max_retry} attempts")
+                        move_file_to_dead_letter(file_path, bundle_type)
+                    else:
+                        logger.warning(f"Retry {count_retry} failed for {file_name}, attempting again...")
 
-        # Đếm số message còn lại sau khi xử lý
+            except Exception as e:
+                logger.error(f"Error on attempt {count_retry}: {e}")
+                if count_retry == max_retry:
+                    logger.error(f"Max retries reached for {file_name}")
+                    move_file_to_dead_letter(file_name, bundle_type)
+
+            finally:
+                count_retry += 1
+
         count_queue_messages(ch)
 
     except Exception as e:
-        logger.error(f"Error processing message: {e}")
-    finally:
-        ch.basic_ack(delivery_tag=method.delivery_tag)
+        logger.error(f"Fatal error processing message: {e}")
+
+    # ✅ Chỉ ack ở đây, sau khi xử lý xong toàn bộ retry
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+# def process_message(ch, method, properties, body):
+#     """Xử lý message từ RabbitMQ"""
+#     count_retry = 1
+#     max_retry = 3  # Số lần retry tối đa
+#
+#     try:
+#         # Parse message
+#         message = json.loads(body)
+#         file_name = message.get('file_name')
+#         bundle_type = message.get('bundle_type', 'word')
+#
+#         if not file_name:
+#             logger.error("Invalid message format: missing file_name")
+#             ch.basic_ack(delivery_tag=method.delivery_tag)
+#             return
+#
+#         while count_retry <= max_retry:
+#             logger.info(f"Processing attempt {count_retry} of {max_retry} for file: {file_name}")
+#
+#             # Tải file từ S3
+#             if not download_file_from_s3(file_name):
+#                 logger.error(f"Failed to download file from S3: {file_name}")
+#                 if count_retry == max_retry:
+#                     ch.basic_ack(delivery_tag=method.delivery_tag)
+#                     return
+#                 count_retry += 1
+#                 continue
+#
+#             # Tạo đường dẫn file
+#             file_path = os.path.join(os.getenv('WORD_ZIP_PATH_SOURCE'), file_name)
+#
+#             # Kiểm tra file tồn tại
+#             if not os.path.exists(file_path):
+#                 logger.error(f"File not found: {file_path}")
+#                 if count_retry == max_retry:
+#                     ch.basic_ack(delivery_tag=method.delivery_tag)
+#                     return
+#                 count_retry += 1
+#                 continue
+#
+#             # Cache trạng thái xử lý
+#             cache_process_status(file_path, "Processing")
+#
+#             # Xóa thư mục cũ
+#             remove_folder()
+#
+#             # Copy file vào INPUT
+#             copy_zip_file(file_path)
+#
+#             # Xử lý file
+#             folder_item = {
+#                 'bundle_type': bundle_type,
+#                 'type': 'bundle',
+#                 'upload_ios': os.getenv('WORD_IOS_S3_PATH'),
+#                 'upload_android': os.getenv('WORD_AND_S3_PATH'),
+#                 'upload_win32': os.getenv('WORD_WIN32_S3_PATH'),
+#             }
+#
+#             result = main_process(file_path, folder_item)
+#
+#             message = result[0]
+#             build_time = result[1]
+#             ios_bundle = result[2]
+#             and_bundle = result[3]
+#
+#             if message == "Done":
+#                 delete_zip_file(file_path)
+#                 delete_cache(file_path)
+#                 # insert_result_to_es(file_path, bundle_type, message, ios_bundle, and_bundle, build_time)
+#                 save_build_result_to_excel(file_name, bundle_type, "Done", ios_bundle, and_bundle, build_time, count_retry)
+#                 logger.info(f"Successfully processed {file_name} after {count_retry} attempts")
+#                 break
+#             else:
+#                 build_time = "0"
+#                 ios_bundle = "Not Exist"
+#                 and_bundle = "Not Exists"
+#                 fail_message = "Failed"
+#                 delete_cache(file_path)
+#                 # insert_result_to_es(file_path, bundle_type, fail_message, ios_bundle, and_bundle, build_time)
+#                 save_build_result_to_excel(file_name, bundle_type, "Failed", ios_bundle, and_bundle, build_time, count_retry)
+#
+#                 if count_retry == max_retry:
+#                     logger.error(f"Failed to process {file_name} after {max_retry} attempts")
+#                     move_file_to_dead_letter(file_path, bundle_type)
+#                 else:
+#                     logger.warning(f"Retry {count_retry} failed for {file_name}, attempting again...")
+#                     count_retry += 1
+#                     continue
+#
+#         # Đếm số message còn lại sau khi xử lý
+#         count_queue_messages(ch)
+#
+#     except Exception as e:
+#         logger.error(f"Error processing message: {e}")
+#     finally:
+#         ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def count_queue_messages(channel):
     """Đếm số lượng message còn lại trong queue
@@ -311,8 +411,8 @@ def connect_to_rabbitmq():
                 host=os.getenv("RABBITMQ_HOST"),
                 port=int(os.getenv("RABBITMQ_PORT")),
                 credentials=credentials,
-                heartbeat=30,  # Heartbeat mỗi 30 giây
-                blocked_connection_timeout=30,  # Timeout sau 30 giây nếu connection bị block
+                heartbeat=600,  # Heartbeat mỗi 30 giây
+                blocked_connection_timeout=600,  # Timeout sau 30 giây nếu connection bị block
                 socket_timeout=10,  # Timeout cho socket operations
                 connection_attempts=3,  # Số lần thử kết nối
                 retry_delay=5  # Delay 5 giây giữa các lần retry
