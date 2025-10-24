@@ -144,7 +144,10 @@ def save_build_result_to_excel(file_name, bundle_type, status, ios_bundle, and_b
     try:
         # Tạo tên file Excel với ngày tháng
         current_date = datetime.now().strftime('%Y%m%d')
-        excel_file = f'build_results_{current_date}.xlsx'
+        excel_file = f'./build_result/build_results_{current_date}.xlsx'
+        
+        # Tạo thư mục nếu chưa tồn tại
+        os.makedirs('./build_result', exist_ok=True)
         
         # Tạo dữ liệu mới
         new_data = {

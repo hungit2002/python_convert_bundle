@@ -275,7 +275,7 @@ if __name__ == '__main__':
         # "224_1_4435_1691084113.zip",
         # "224_1_4435_1691084113.zip",
         # "course_install_ms2.0_324_1759418441.zip"
-        "course_install_event_76_1760521504.zip"
+        "course_install_ms2.0_354_1761281088.zip"
     ]
 
     if zip_files:

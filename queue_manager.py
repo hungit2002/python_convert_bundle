@@ -26,11 +26,15 @@ load_dotenv()
 class RabbitMQQueueManager:
     """Class quản lý queue RabbitMQ"""
     
-    def __init__(self):
-        """Khởi tạo kết nối RabbitMQ"""
+    def __init__(self, queue_name: Optional[str] = None):
+        """Khởi tạo kết nối RabbitMQ
+        
+        Args:
+            queue_name: Tên queue chỉ định; nếu không truyền sẽ dùng từ ENV
+        """
         self.connection = None
         self.channel = None
-        self.queue_name = os.getenv('RABBITMQ_QUEUE', 'default_queue')
+        self.queue_name = queue_name or os.getenv('RABBITMQ_QUEUE', 'default_queue')
         self.connect()
     
     def connect(self):
@@ -272,6 +276,8 @@ def main():
     parser.add_argument('--action', '-a', required=True, 
                        choices=['info', 'purge', 'delete-by-condition', 'delete-by-count', 'list'],
                        help='Hành động cần thực hiện')
+    parser.add_argument('--queue', '-q', 
+                       help='Tên queue chỉ định (ghi đè ENV RABBITMQ_QUEUE)')
     parser.add_argument('--file-name', '-f', 
                        help='Tên file để lọc (cho delete-by-condition)')
     parser.add_argument('--bundle-type', '-b', 
@@ -289,7 +295,7 @@ def main():
     
     try:
         # Khởi tạo queue manager
-        manager = RabbitMQQueueManager()
+        manager = RabbitMQQueueManager(queue_name=args.queue)
         
         if args.action == 'info':
             # Hiển thị thông tin queue
