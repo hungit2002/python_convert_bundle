@@ -231,8 +231,20 @@ class RabbitMQQueueManager:
         """
         try:
             messages = []
+            processed_count = 0
             
-            for i in range(limit):
+            # Lấy thông tin queue trước
+            queue_info = self.get_queue_info()
+            actual_message_count = queue_info.get('message_count', 0)
+            
+            if actual_message_count == 0:
+                logger.info("Queue trống, không có message nào")
+                return []
+            
+            # Giới hạn số message thực tế có trong queue
+            max_to_process = min(limit, actual_message_count)
+            
+            while processed_count < max_to_process:
                 # Lấy message từ queue
                 method_frame, header_frame, body = self.channel.basic_get(queue=self.queue_name)
                 
@@ -242,14 +254,14 @@ class RabbitMQQueueManager:
                 try:
                     message = json.loads(body)
                     messages.append({
-                        'index': i + 1,
+                        'index': processed_count + 1,
                         'file_name': message.get('file_name'),
                         'bundle_type': message.get('bundle_type'),
                         'raw_message': message
                     })
                 except json.JSONDecodeError:
                     messages.append({
-                        'index': i + 1,
+                        'index': processed_count + 1,
                         'file_name': 'Invalid JSON',
                         'bundle_type': 'Unknown',
                         'raw_message': body.decode('utf-8', errors='ignore')
@@ -257,7 +269,9 @@ class RabbitMQQueueManager:
                 
                 # Reject để đưa message về queue
                 self.channel.basic_reject(delivery_tag=method_frame.delivery_tag, requeue=True)
+                processed_count += 1
             
+            logger.info(f"Đã xem {processed_count} message từ {actual_message_count} message có trong queue")
             return messages
             
         except Exception as e:
